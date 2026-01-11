@@ -6,6 +6,7 @@
 
 ML_Threshold::ML_Threshold(const Step&       u,
 	                   const Bias&       bias,
+			   bool              use_saturation,
 	                   long int          N,
 	                   double            theta,
 	                   double            r,
@@ -15,19 +16,30 @@ ML_Threshold::ML_Threshold(const Step&       u,
       N(N), L(L), K(int(std::ceil(theta*L))) {
    init();
    double threshold;
-   for (int k = 0; k < K; k++) {
-      for (int level = 1; level < L+1; level++) {
-         for (long int n = 1L; n < N+1L; n++) {
-            switch (loss_model.concentration) {
-            case power_concentration:
-               threshold = scaler*std::pow(u(n), -1./loss_model.p)*std::pow(bias(theta*level*(r-1)+k), 1./r);
-	       break;
-            default:
-               threshold = scaler*std::pow(bias(theta*level*(r-1)+k), 1./r)*std::sqrt(std::log(std::pow(u(n)*std::pow(bias(level+k), 1+theta), -1./2)));
-	       break;
+   if (use_saturation) {
+      for (int k = 0; k < K; k++) {
+         for (int level = 1; level < L+1; level++) {
+            for (long int n = 1L; n < N+1L; n++) {
+               switch (loss_model.concentration) {
+               case power_concentration:
+                  threshold = scaler*std::pow(u(n), -1./loss_model.p)*std::pow(bias(theta*level*(r-1)+k), 1./r);
+                  break;
+               default:
+                  threshold = scaler*std::sqrt(std::log(std::pow((u(n)/u(1))*std::pow(bias(level+k), 1+theta), -1./2)))*std::pow(bias(theta*level*(r-1)+k), 1./r);
+                  break;
+               }
+               threshold_array[k][level-1][n-1L] = threshold;
             }
-	    threshold_array[k][level-1][n-1L] = threshold;
-	 }
+         }
+      }
+   } else {
+      for (int k = 0; k < K; k++) {
+         for (int level = 1; level < L+1; level++) {
+            for (long int n = 1L; n < N+1L; n++) {
+               threshold = scaler*std::pow(bias(theta*level*(r-1)+k), 1./r);
+               threshold_array[k][level-1][n-1L] = threshold;
+            }
+         }
       }
    }
 }
@@ -61,13 +73,12 @@ void ML_Threshold::verify_threshold_access(int      k,
 }
 
 void ML_Threshold::init() {
-   if (threshold_array == nullptr) {
-      threshold_array = new double**[K];
-      for (int k = 0; k < K; k++) {
-         threshold_array[k] = new double*[L];
-         for (int level = 1; level < L+1; level++) {
-	    threshold_array[k][level-1] = new double[N]();
-         }
+   free_up();
+   threshold_array = new double**[K];
+   for (int k = 0; k < K; k++) {
+      threshold_array[k] = new double*[L];
+      for (int level = 1; level < L+1; level++) {
+         threshold_array[k][level-1] = new double[N]();
       }
    }
 }
@@ -154,6 +165,7 @@ void configure_adaptive_ml_sa(IN     double            beta,
 			      IN     double            gamma_0,
 			      IN     long int          smoothing,
 			      IN     double            threshold_scaler,
+			      IN     bool              use_saturation,
                                  OUT double*           h,
                                  OUT long int*         N,
 				 OUT ML_Threshold&     threshold,
@@ -172,11 +184,7 @@ void configure_adaptive_ml_sa(IN     double            beta,
    for (int l = 0; l < L+1; l++) {
       switch (loss_model.concentration) {
       case power_concentration:
-	 if (loss_model.delta < beta) {
-            tmp += std::pow(h[l], ((3*(1+theta) - 2*loss_model.delta)*loss_model.p*loss_model.p + (2*(1+theta) + loss_model.delta*(1+3*theta))*loss_model.p + 2*loss_model.delta*(1+theta))/(2*(1 + loss_model.p)*(loss_model.delta + (1+loss_model.delta)*loss_model.p)));
-	 } else {
-            tmp += std::pow(h[l], -((2*beta - (1+theta))*loss_model.p + (2*beta - (1+theta)*loss_model.delta))*loss_model.p/(2*(1 + loss_model.p)*(loss_model.delta + (1+beta)*loss_model.p)));
-         }
+         tmp += std::pow(h[l], -((2*beta - (1+theta))*loss_model.p + (2*beta - (1+theta)*loss_model.delta))*loss_model.p/(2*(1 + loss_model.p)*(loss_model.delta + (1+beta)*loss_model.p)));
          break;
       case gaussian_concentration:
          tmp += std::pow(h[l], -(2*beta - (1+theta))/(2*(1+beta)))*std::pow(std::abs(std::log(h[l])), (1+theta)/(2*(1+beta)));
@@ -189,13 +197,8 @@ void configure_adaptive_ml_sa(IN     double            beta,
 
    switch (loss_model.concentration) {
    case power_concentration:
-      if (loss_model.delta < beta) {
-         tmp = std::pow(tmp, 1./loss_model.delta);
-         tmp *= std::pow(accuracy, -2./loss_model.delta);
-      } else {
-         tmp = std::pow(tmp, 1./beta);
-         tmp *= std::pow(accuracy, -2./beta);
-      }
+      tmp = std::pow(tmp, 1./beta);
+      tmp *= std::pow(accuracy, -2./beta);
       break;
    case gaussian_concentration:
       tmp = std::pow(tmp, 1./beta);
@@ -210,11 +213,7 @@ void configure_adaptive_ml_sa(IN     double            beta,
    for (int l = 0; l < L+1; l++) {
       switch (loss_model.concentration) {
       case power_concentration:
-         if (loss_model.delta < beta) {
-            N[l] = (long int) std::ceil(scaler * tmp * std::pow(h[l], ((5+3*theta)*loss_model.p+4+2*theta)*loss_model.p/(2*(1+loss_model.p)*(loss_model.delta+(1+loss_model.delta)*loss_model.p))));
-         } else {
-            N[l] = (long int) std::ceil(scaler * tmp * std::pow(h[l], (2+(3+theta)*loss_model.p)*loss_model.p/(2*(1+loss_model.p)*(loss_model.delta+(1+beta)*loss_model.p))));
-	 }
+         N[l] = (long int) std::ceil(scaler * tmp * std::pow(h[l], (2+(3+theta)*loss_model.p)*loss_model.p/(2*(1+loss_model.p)*(loss_model.delta+(1+beta)*loss_model.p))));
          break;
       case gaussian_concentration:
          N[l] = (long int) std::ceil(scaler * tmp * std::pow(h[l], (3+theta)/(2*(1+beta))) * std::pow(std::abs(std::log(h[l])), (1+theta)/(2*(1+beta))));
@@ -233,7 +232,8 @@ void configure_adaptive_ml_sa(IN     double            beta,
    } else {
       u_amlsa = Gamma(gamma_0, beta, smoothing);
    }
-   threshold = ML_Threshold(u_amlsa, bias, N[1], theta, r, L, threshold_scaler, loss_model);
+
+   threshold = ML_Threshold(u_amlsa, bias, use_saturation, N[1], theta, r, L, threshold_scaler, loss_model);
 }
 
 double adaptive_ml_sa(IN     double              xi_0,

@@ -31,13 +31,12 @@ void run_test_case_1() {
    double h[max_L+1];
    long int N[max_L+1];
 
-   ML_Setting ml_settings[] {
-      ML_Setting {.h_0 = 1./16, .M = 2, .L = 1, .gamma_0 = 2, .smoothing = 2500L,}, // accuracy = 1/32
-      ML_Setting {.h_0 = 1./32, .M = 2, .L = 1, .gamma_0 = 2, .smoothing = 4000L,}, // accuracy = 1/64
-      ML_Setting {.h_0 = 1./32, .M = 2, .L = 2, .gamma_0 = 0.75, .smoothing = 9000L,}, // accuracy = 1/128
-      ML_Setting {.h_0 = 1./32, .M = 2, .L = 3, .gamma_0 = 0.25, .smoothing = 10000L,}, // accuracy = 1/256
-      ML_Setting {.h_0 = 1./32, .M = 2, .L = 4, .gamma_0 = 0.09, .smoothing = 10000L,}, // accuracy = 1/512
-   };
+   ML_Setting ml_settings[5];
+   ml_settings[0] = {.h_0 = 1./16, .M = 2, .L = 1, .gamma_0 = 2, .smoothing = 2500L,}; // accuracy = 1/32
+   ml_settings[1] = {.h_0 = 1./32, .M = 2, .L = 1, .gamma_0 = 2, .smoothing = 4000L,}; // accuracy = 1/64
+   ml_settings[2] = {.h_0 = 1./32, .M = 2, .L = 2, .gamma_0 = 0.75, .smoothing = 9000L,}; // accuracy = 1/128
+   ml_settings[3] = {.h_0 = 1./32, .M = 2, .L = 3, .gamma_0 = 0.25, .smoothing = 10000L,}; // accuracy = 1/256
+   ml_settings[4] = {.h_0 = 1./32, .M = 2, .L = 4, .gamma_0 = 0.09, .smoothing = 10000L,}; // accuracy = 1/512
 
    double beta = 1.0; // 0.0 < beta <= 1
    Gamma gamma_sa;
@@ -48,19 +47,20 @@ void run_test_case_1() {
    gamma_nsa = Gamma(1, beta, 100L);
 
    double scaler = 1;
+   double factor = 5;
    long int n; // n >> 1
 
    double xi_0 = 2.0;
    double time_sa, time_nsa, time_mlsa;
-   double VaR_sa, VaR_nsa, VaR_mlsa;
+   double VaR_sa,  VaR_nsa,  VaR_mlsa;
 
    // Adaptive setup
-   double adaptive_scaler = 700;
+   double adaptive_scaler = 2;
    double nested_adaptive_scaler = 2;
    Loss_Model model {
       .concentration = power_concentration,
       .p             = 11,
-      .delta         = 0.95, // 0 < delta <= beta
+      .delta         = 0.05, // 0 < delta <= beta
    };
 
    double theta;
@@ -84,14 +84,19 @@ void run_test_case_1() {
    int ada_L;
    int level;
 
-   double time_amlsa, time_amlsa_c, time_ansa, time_ansa_c;
-   double VaR_amlsa,  VaR_amlsa_c,  VaR_ansa,  VaR_ansa_c;
+   double time_amlsa, time_amlsa_c, time_ansa, time_ansa_c, time_amlsa_u, time_ansa_u;
+   double VaR_amlsa,  VaR_amlsa_c,  VaR_ansa,  VaR_ansa_c,  VaR_amlsa_u,  VaR_ansa_u;
+
+   bool use_saturation;
 
    int n_runs = 200;
-   std::printf("#,accuracy,status,time_sa,time_nsa,time_mlsa,time_ada_nsa,time_ada_nsa_sd,time_ada_mlsa,time_ada_mlsa_sd,VaR_sa,VaR_nsa,VaR_mlsa,VaR_ada_nsa,VaR_ada_nsa_sd,VaR_ada_mlsa,VaR_ada_mlsa_sd\n");
+   std::printf("#,accuracy,status,time_sa,time_nsa,time_mlsa,time_ada_nsa,time_ada_nsa_sd,time_ada_nsa_nosat,time_ada_mlsa,time_ada_mlsa_sd,time_ada_mlsa_nosat,VaR_sa,VaR_nsa,VaR_mlsa,VaR_ada_nsa,VaR_ada_nsa_sd,VaR_ada_nsa_nosat,VaR_ada_mlsa,VaR_ada_mlsa_sd,VaR_ada_mlsa_nosat\n");
    for (ML_Setting ml_setting: ml_settings) {
       for (int i = 0; i < n_runs; i++) {
          try {
+            // Adaptivity with saturation
+            use_saturation = true;
+
             // ML SA
             gamma_mlsa = Gamma(ml_setting.gamma_0, beta, ml_setting.smoothing);
             configure_ml_sa(beta, ml_setting.h_0, ml_setting.M, ml_setting.L, scaler, model, h, N, accuracy);
@@ -111,7 +116,8 @@ void run_test_case_1() {
             configure_adaptive_nested_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
 			                 gamma_nsa, nested_adaptive_scaler, model, r, theta,
 				         ml_setting.gamma_0, ml_setting.smoothing,
-			                 nested_threshold_scaler, n, nested_threshold, level);
+			                 nested_threshold_scaler, use_saturation,
+					 n, nested_threshold, level);
             option_refiner = Option_Refiner(ml_setting.h_0, ml_setting.M, tau);
 
             tik();
@@ -123,7 +129,8 @@ void run_test_case_1() {
             configure_adaptive_nested_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
 			                 gamma_nsa, nested_adaptive_scaler, model, r, theta,
 				         ml_setting.gamma_0, ml_setting.smoothing,
-			                 threshold_confidence, n, nested_threshold, level);
+			                 threshold_confidence, use_saturation,
+					 n, nested_threshold, level);
 
             tik();
 	    VaR_ansa_c = adaptive_nested_sa(xi_0, alpha, ml_setting.h_0, ml_setting.M, level, n, gamma_nsa, true,
@@ -141,7 +148,8 @@ void run_test_case_1() {
             configure_adaptive_ml_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
 			             adaptive_scaler, model, r, theta,
 				     ml_setting.gamma_0, ml_setting.smoothing,
-				     threshold_scaler, h, N, threshold, ada_L);
+				     threshold_scaler, use_saturation,
+				     h, N, threshold, ada_L);
 
             tik();
             VaR_amlsa = adaptive_ml_sa(xi_0, alpha, ada_L, h, N, gamma_mlsa,
@@ -153,7 +161,8 @@ void run_test_case_1() {
             configure_adaptive_ml_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
 			             adaptive_scaler, model, r, theta,
 				     ml_setting.gamma_0, ml_setting.smoothing,
-				     threshold_confidence, h, N, threshold, ada_L);
+				     threshold_confidence, use_saturation,
+				     h, N, threshold, ada_L);
 
             tik();
             VaR_amlsa_c = adaptive_ml_sa(xi_0, alpha, ada_L, h, N, gamma_mlsa,
@@ -161,10 +170,44 @@ void run_test_case_1() {
                                          nested_simulator, ml_simulator);
             time_amlsa_c = tok();
 
-            std::printf("%d,%.15f,success,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
-                        i+1, accuracy, time_sa, time_nsa, time_mlsa, time_ansa, time_ansa_c, time_amlsa, time_amlsa_c,
-                        VaR_sa, VaR_nsa, VaR_mlsa, VaR_ansa, VaR_ansa_c, VaR_amlsa, VaR_amlsa_c);
+            // Adaptivity withOUT saturation
+            use_saturation = false;
+
+            // Adaptive Nested SA
+            configure_adaptive_nested_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
+			                 gamma_nsa, nested_adaptive_scaler, model, r, theta,
+				         ml_setting.gamma_0, ml_setting.smoothing,
+			                 nested_threshold_scaler, use_saturation,
+					 n, nested_threshold, level);
+
+            tik();
+	    VaR_ansa_u = adaptive_nested_sa(xi_0, alpha, ml_setting.h_0, ml_setting.M, level, n, gamma_nsa, false,
+			                  nested_threshold, nested_adapter, option_refiner, nested_simulator);
+            time_ansa_u = tok();
+
+
+            // Adaptive ML SA
+            configure_adaptive_ml_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
+			             adaptive_scaler, model, r, theta,
+				     ml_setting.gamma_0, ml_setting.smoothing,
+				     threshold_scaler, use_saturation,
+				     h, N, threshold, ada_L);
+
+            tik();
+            VaR_amlsa_u = adaptive_ml_sa(xi_0, alpha, ada_L, h, N, gamma_mlsa,
+				         threshold, adapter, option_refiner, false,
+                                         nested_simulator, ml_simulator);
+            time_amlsa_u = tok();
+
+            // Record results
+            accuracy = factor*accuracy;
+            std::printf("%d,%.15f,success,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+                        i+1, accuracy,
+			time_sa, time_nsa, time_mlsa, time_ansa, time_ansa_c, time_ansa_u, time_amlsa, time_amlsa_c, time_amlsa_u,
+                        VaR_sa,  VaR_nsa,  VaR_mlsa,  VaR_ansa,  VaR_ansa_c,  VaR_ansa_u,  VaR_amlsa,  VaR_amlsa_c,  VaR_amlsa_u);
+
          } catch (const std::exception& e) {
+            // Record error
             std::printf("%d,%.15f,failure,%s\n", i+1, accuracy, e.what());
          }
       }
@@ -190,13 +233,12 @@ void run_test_case_2() {
    double h[max_L+1];
    long int N[max_L+1];
 
-   ML_Setting ml_settings[] {
-      ML_Setting {.h_0 = 1./8, .M = 2, .L = 2, .gamma_0 = 6, .smoothing = 10L,}, // accuracy = 1/32
-      ML_Setting {.h_0 = 1./16, .M = 2, .L = 2, .gamma_0 = 20, .smoothing = 500L,}, // accuracy = 1/64
-      ML_Setting {.h_0 = 1./16, .M = 2, .L = 3, .gamma_0 = 21, .smoothing = 1000L,}, // accuracy = 1/128
-      ML_Setting {.h_0 = 1./16, .M = 2, .L = 4, .gamma_0 = 20, .smoothing = 2000L,}, // accuracy = 1/256
-      ML_Setting {.h_0 = 1./16, .M = 2, .L = 5, .gamma_0 = 21, .smoothing = 3000L,}, // accuracy = 1/512
-   };
+   ML_Setting ml_settings[5];
+   ml_settings[0] = {.h_0 = 1./8, .M = 2, .L = 2, .gamma_0 = 6, .smoothing = 10L,}; // accuracy = 1/32
+   ml_settings[1] = {.h_0 = 1./16, .M = 2, .L = 2, .gamma_0 = 20, .smoothing = 500L,}; // accuracy = 1/64
+   ml_settings[2] = {.h_0 = 1./16, .M = 2, .L = 3, .gamma_0 = 21, .smoothing = 1000L,}; // accuracy = 1/128
+   ml_settings[3] = {.h_0 = 1./16, .M = 2, .L = 4, .gamma_0 = 20, .smoothing = 2000L,}; // accuracy = 1/256
+   ml_settings[4] = {.h_0 = 1./16, .M = 2, .L = 5, .gamma_0 = 21, .smoothing = 3000L,}; // accuracy = 1/512
 
    double beta = 1.0; // 0.0 < beta <= 1
    Gamma gamma_sa (100, beta, 0L); // SA
@@ -204,20 +246,20 @@ void run_test_case_2() {
    Gamma gamma_mlsa; // Multilevel SA
 
    double scaler = 1;
+   double factor = 450;
    long int n; // n >> 1
 
    double xi_0 = 200;
    double time_sa, time_nsa, time_mlsa;
-   double VaR_sa, VaR_nsa, VaR_mlsa;
+   double VaR_sa,  VaR_nsa,  VaR_mlsa;
 
    // Adaptive setup
-   double adaptive_scaler = 80;
+   double adaptive_scaler = 2;
    double nested_adaptive_scaler = 2;
    Loss_Model model {
       .concentration = power_concentration,
-      //.concentration = lipschitz_concentration,
       .p             = 8,
-      .delta         = 0.95, // 0 < delta <= beta
+      .delta         = 0.05, // 0 < delta <= beta
    };
 
    double theta;
@@ -227,7 +269,7 @@ void run_test_case_2() {
       theta = 1;
    }
    double r0 = 1 + 1./theta;
-   double threshold_scaler = 100;
+   double threshold_scaler = 30;
    double nested_threshold_scaler = 300;
    double threshold_confidence = 3;
 
@@ -241,15 +283,19 @@ void run_test_case_2() {
    int ada_L;
    int level;
 
-   double time_amlsa, time_amlsa_c, time_ansa, time_ansa_c;
-   double VaR_amlsa,  VaR_amlsa_c,  VaR_ansa,  VaR_ansa_c;
+   double time_amlsa, time_amlsa_c, time_ansa, time_ansa_c, time_ansa_u, time_amlsa_u;
+   double VaR_amlsa,  VaR_amlsa_c,  VaR_ansa,  VaR_ansa_c,  VaR_ansa_u,  VaR_amlsa_u;
 
-   //int n_runs = 50;
+   bool use_saturation;
+
    int n_runs = 200;
-   std::printf("#,accuracy,status,time_sa,time_nsa,time_mlsa,time_ada_nsa,time_ada_nsa_sd,time_ada_mlsa,time_ada_mlsa_sd,VaR_sa,VaR_nsa,VaR_mlsa,VaR_ada_nsa,VaR_ada_nsa_sd,VaR_ada_mlsa,VaR_ada_mlsa_sd\n");
+   std::printf("#,accuracy,status,time_sa,time_nsa,time_mlsa,time_ada_nsa,time_ada_nsa_sd,time_ada_nsa_nosat,time_ada_mlsa,time_ada_mlsa_sd,time_ada_mlsa_nosat,VaR_sa,VaR_nsa,VaR_mlsa,VaR_ada_nsa,VaR_ada_nsa_sd,VaR_ada_nsa_nosat,VaR_ada_mlsa,VaR_ada_mlsa_sd,VaR_ada_mlsa_nosat\n");
    for (ML_Setting ml_setting: ml_settings) {
       for (int i = 0; i < n_runs; i++) {
          try {
+            // Adaptivity with saturation
+            use_saturation = true;
+
             // ML SA
             gamma_mlsa = Gamma(ml_setting.gamma_0, beta, ml_setting.smoothing);
             configure_ml_sa(beta, ml_setting.h_0, ml_setting.M, ml_setting.L, scaler, model, h, N, accuracy);
@@ -267,7 +313,8 @@ void run_test_case_2() {
             configure_adaptive_nested_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
 			                 gamma_nsa, nested_adaptive_scaler, model, r0, theta,
 				         ml_setting.gamma_0, ml_setting.smoothing,
-			                 nested_threshold_scaler, n, nested_threshold, level);
+			                 nested_threshold_scaler, use_saturation,
+					 n, nested_threshold, level);
             swap_refiner = Swap_Refiner(r, S_0, kappa, sigma, Delta, T, delta, leg_0, ml_setting.h_0, ml_setting.M);
 
             tik();
@@ -279,7 +326,8 @@ void run_test_case_2() {
             configure_adaptive_nested_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
 			                 gamma_nsa, nested_adaptive_scaler, model, r0, theta,
 				         ml_setting.gamma_0, ml_setting.smoothing,
-			                 threshold_confidence, n, nested_threshold, level);
+			                 threshold_confidence, use_saturation,
+					 n, nested_threshold, level);
 
             tik();
 	    VaR_ansa_c = adaptive_nested_sa(xi_0, alpha, ml_setting.h_0, ml_setting.M, level, n, gamma_nsa, true,
@@ -296,7 +344,8 @@ void run_test_case_2() {
             configure_adaptive_ml_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
 			             adaptive_scaler, model, r0, theta,
 				     ml_setting.gamma_0, ml_setting.smoothing,
-				     threshold_scaler, h, N, threshold, ada_L);
+				     threshold_scaler, use_saturation,
+				     h, N, threshold, ada_L);
 
             tik();
             VaR_amlsa = adaptive_ml_sa(xi_0, alpha, ada_L, h, N, gamma_mlsa,
@@ -308,7 +357,8 @@ void run_test_case_2() {
             configure_adaptive_ml_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
 			             adaptive_scaler, model, r0, theta,
 				     ml_setting.gamma_0, ml_setting.smoothing,
-				     threshold_confidence, h, N, threshold, ada_L);
+				     threshold_confidence, use_saturation,
+				     h, N, threshold, ada_L);
 
             tik();
             VaR_amlsa_c = adaptive_ml_sa(xi_0, alpha, ada_L, h, N, gamma_mlsa,
@@ -316,10 +366,42 @@ void run_test_case_2() {
                                          nested_simulator, ml_simulator);
             time_amlsa_c = tok();
 
-            std::printf("%d,%.15f,success,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
-                        i+1, accuracy, time_sa, time_nsa, time_mlsa, time_ansa, time_ansa_c, time_amlsa, time_amlsa_c,
-                        VaR_sa, VaR_nsa, VaR_mlsa, VaR_ansa, VaR_ansa_c, VaR_amlsa, VaR_amlsa_c);
+            // Adaptivity withOUT saturation
+            use_saturation = false;
+
+            // Adaptive Nested SA
+            configure_adaptive_nested_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
+			                 gamma_nsa, nested_adaptive_scaler, model, r0, theta,
+				         ml_setting.gamma_0, ml_setting.smoothing,
+			                 nested_threshold_scaler, use_saturation,
+					 n, nested_threshold, level);
+
+            tik();
+	    VaR_ansa_u = adaptive_nested_sa(xi_0, alpha, ml_setting.h_0, ml_setting.M, level, n, gamma_nsa, false,
+			                  nested_threshold, nested_adapter, swap_refiner, nested_simulator);
+            time_ansa_u = tok();
+
+            // Adaptive ML SA
+            configure_adaptive_ml_sa(beta, ml_setting.h_0, ml_setting.M, accuracy,
+			             adaptive_scaler, model, r0, theta,
+				     ml_setting.gamma_0, ml_setting.smoothing,
+				     threshold_scaler, use_saturation,
+				     h, N, threshold, ada_L);
+
+            tik();
+            VaR_amlsa_u = adaptive_ml_sa(xi_0, alpha, ada_L, h, N, gamma_mlsa,
+				         threshold, adapter, swap_refiner, false,
+                                         nested_simulator, ml_simulator);
+            time_amlsa_u = tok();
+
+            // Record results
+            accuracy = factor*accuracy;
+            std::printf("%d,%.15f,success,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+                        i+1, accuracy,
+			time_sa, time_nsa, time_mlsa, time_ansa, time_ansa_c, time_ansa_u, time_amlsa, time_amlsa_c, time_amlsa_u,
+                        VaR_sa,  VaR_nsa,  VaR_mlsa,  VaR_ansa,  VaR_ansa_c,  VaR_ansa_u,  VaR_amlsa,  VaR_amlsa_c,  VaR_amlsa_u);
          } catch (const std::exception& e) {
+            // Record error
             std::printf("%d,%.15f,failure,%s\n", i+1, accuracy, e.what());
          }
       }

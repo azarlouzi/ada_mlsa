@@ -3,6 +3,7 @@
 
 Nested_Threshold::Nested_Threshold(const Step&       u,
                                    const Bias&       bias,
+				   bool              use_saturation,
                                    long int          N,
                                    double            theta,
                                    double            r,
@@ -12,19 +13,28 @@ Nested_Threshold::Nested_Threshold(const Step&       u,
       N(N), level(level), K(int(std::ceil(theta*level))) {
    init();
    double threshold;
-   for (int k = 0; k < K; k++) {
-     for (long int n = 1L; n < N+1L; n++) {
-        switch (loss_model.concentration) {
-        case power_concentration:
-           threshold = scaler*std::pow(u(n), -1./loss_model.p)*std::pow(bias(theta*level*(r-1)+k), 1./r);
-           break;
-        default:
-           threshold = scaler*std::pow(bias(theta*level*(r-1)+k), 1./r)*std::sqrt(std::log(std::pow(u(n)*std::pow(bias(level+k), 1+theta), -1./2)));
-           break;
-        }
-        threshold_array[k][n-1L] = threshold;
-     }
-  }
+   if (use_saturation) {
+      for (int k = 0; k < K; k++) {
+         for (long int n = 1L; n < N+1L; n++) {
+            switch (loss_model.concentration) {
+            case power_concentration:
+               threshold = scaler*std::pow(u(n), -1./loss_model.p)*std::pow(bias(theta*level*(r-1)+k), 1./r);
+               break;
+            default:
+               threshold = scaler*std::pow(bias(theta*level*(r-1)+k), 1./r)*std::sqrt(std::log(std::pow(u(n)*std::pow(bias(level+k), 1+theta), -1./2)));
+               break;
+            }
+            threshold_array[k][n-1L] = threshold;
+         }
+      }
+   } else {
+      for (int k = 0; k < K; k++) {
+         for (long int n = 1L; n < N+1L; n++) {
+            threshold = scaler*std::pow(bias(theta*level*(r-1)+k), 1./r);
+            threshold_array[k][n-1L] = threshold;
+	 }
+      }
+   }
 }
 
 Nested_Threshold& Nested_Threshold::operator=(const Nested_Threshold& threshold) {
@@ -58,11 +68,10 @@ void Nested_Threshold::verify_threshold_access(int      k,
 }
 
 void Nested_Threshold::init() {
-   if (threshold_array == nullptr) {
-      threshold_array = new double*[K];
-      for (int k = 0; k < K; k++) {
-         threshold_array[k] = new double[N]();
-      }
+   free_up();
+   threshold_array = new double*[K];
+   for (int k = 0; k < K; k++) {
+      threshold_array[k] = new double[N]();
    }
 }
 
@@ -131,6 +140,7 @@ void configure_adaptive_nested_sa(IN     double            beta,
 			          IN     double            gamma_0,
 			          IN     long int          smoothing,
 			          IN     double            threshold_scaler,
+				  IN     bool              use_saturation,
 				     OUT long int&         n,
 			             OUT Nested_Threshold& threshold,
                                      OUT int&              level) {
@@ -140,14 +150,14 @@ void configure_adaptive_nested_sa(IN     double            beta,
    Bias bias(h_0, M); // Bias function s -> h_0 / M^s
    Gamma u;
    if (loss_model.concentration == power_concentration) {
-      u = Gamma(gamma_0, loss_model.delta, smoothing);
+      u = Gamma(gamma_0, (beta/2.0), smoothing);
    } else {
       u = Gamma(gamma_0, beta, smoothing);
    }
 
    n = a_nested_sa_optimal_steps(accuracy, loss_model, step, u, scaler);
    level = a_nested_sa_optimal_level(accuracy, h_0, M, theta);
-   threshold = Nested_Threshold(u, bias, n, theta, r,
+   threshold = Nested_Threshold(u, bias, use_saturation, n, theta, r,
                                 level, threshold_scaler, loss_model);
 }
 

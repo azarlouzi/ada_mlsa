@@ -10,6 +10,7 @@ public:
    Nested_Threshold() {}
    Nested_Threshold(const Step&       u,
 	            const Bias&       bias,
+		    bool              use_saturation,
 	            long int          N,
 	            double            theta,
 	            double            r,
@@ -57,6 +58,7 @@ void configure_adaptive_nested_sa(IN     double            beta,
 			          IN     double            gamma_0,
 			          IN     long int          smoothing,
 			          IN     double            threshold_scaler,
+				  IN     bool              use_saturation,
 				     OUT long int&         n,
 			             OUT Nested_Threshold& threshold,
                                      OUT int&              level);
